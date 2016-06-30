@@ -1,0 +1,37 @@
+rtl-trx: Transmit and receive RTTY using an RTL-SDR dongle
+
+Local oscillator leakage from an RTL-SDR dongle can be used as a very low power
+FSK transmitter. This program transmits RTTY and also makes it easy to use the
+same dongle to receive RTTY in between transmissions.
+
+
+Setup:
+
+Install fldigi, pavucontrol, liquiddsp and librtlsdr
+( https://github.com/jgaeddert/liquid-dsp https://github.com/keenerd/rtl-sdr )
+
+Run make to compile the program.
+
+Run ./pulseaudio_pipe.sh (only once after starting your computer).
+
+Start fldigi and pavucontrol.
+
+Go to Recording tab in pavucontrol and set fldigi to
+capture from "Unix FIFO source /tmp/audiopipe".
+
+In fldigi menu: Op Mode -> RTTY -> custom, go to Tx tab. Choose these settings:
+425 Carrier shift, 45.45 Baud rate, 5 Bits per character,
+none Parity, 2 Stop bits.
+
+Start rtl-trx:
+./rtl-trx 3>/tmp/audiopipe
+
+You should now see noise scrolling in the waterfall of fldigi.
+rtl-trx is working as an upper sideband demodulator which sends the demodulated
+audio to fldigi. You can change your dial frequency by typing letter F and a
+number into rtl-trx. For example, F 435e6 lets you receive 435 MHz USB.
+
+Now you can also type a line of text into rtl-trx and it should be transmitted
+as RTTY with a shift of 439.45 Hz.
+
+

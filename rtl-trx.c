@@ -7,6 +7,17 @@
 #include <signal.h>
 #include <liquid/liquid.h>
 #include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+
+int if_freq = 3.6e6;
+unsigned int center_freq = 1250e6;
+int rx_gain = 500, tx_gain = 200;
+int tone1 = 2200, shift = 440;
+
+// decimation from 2.4 MHz to 8 kHz/2
+#define DECIM1 600
+
 
 #define RTL_CHECK(x, y) { \
 	ret = (x y); \
@@ -16,26 +27,10 @@
 	} \
 }
 
-
-const char bits[] = {
-0, 0,1,0,1,0, 1,
-0, 0,0,0,0,1, 1,
-0, 0,0,0,0,1, 1,
-0, 1,0,1,0,1, 1,
-0, 0,0,1,0,0, 1,
-1, 1,1,1,1,1, 1,
-};
-const int nbits = sizeof(bits);
-
 pthread_t control_thrd=0;
 rtlsdr_dev_t *dev = NULL;
-int if_freq = 3.6e6;
-long long center_freq = /*1250e6*/ 433.55e6;
-int tone1 = 1000, shift = 440;
 int do_exit = 0;
 
-// decimation from 2.4 MHz to 8 kHz/2
-#define DECIM1 600
 
 static void sighandler(int signum) {
 	(void)signum;
@@ -43,44 +38,69 @@ static void sighandler(int signum) {
 }
 
 
+#define TXTEXT_LEN 512
 static void *control(void *arg) {
-	long long txfreq, txfreq_tune;
+	unsigned int txfreq, txfreq_tune;
 	(void)arg;
 	int ret;
+	char txtext[TXTEXT_LEN], txbits[TXTEXT_LEN];
 	
 	int tfd=-1;
 
-	tfd = timerfd_create(CLOCK_MONOTONIC, 0);
-	
-	struct itimerspec tfd_ts;
-	tfd_ts.it_value.tv_sec = 0;
-	tfd_ts.it_value.tv_nsec = 1;
-	tfd_ts.it_interval.tv_sec = 0;
-	tfd_ts.it_interval.tv_nsec = 1e9 / 45.45 + 0.5;
-	ret = timerfd_settime(tfd, 0, &tfd_ts, NULL);
-	//printf("%d\n", ret);
-	
-	int bit_i;
-	
-	bit_i = 0;
-	while(bit_i < nbits) {
-		uint64_t tfd_e = 0;
-		ret = read(tfd, &tfd_e, sizeof(uint64_t));
-		if(ret < 0) break;
-		//printf("%d %ld\n", ret, tfd_e);
-		if(bits[bit_i % nbits] & 1)
-			txfreq = center_freq + tone1;
-		else
-			txfreq = center_freq + tone1 - shift;
-		txfreq_tune = txfreq / 4 - if_freq;
-		RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
-		
-		bit_i += tfd_e;
-	}
-	close(tfd);
-	tfd = -1;
+	for(;;) {
+		int nbits;
+		RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
+		RTL_CHECK(rtlsdr_set_tuner_gain,(dev, rx_gain));
+		printf("Ready\n");
 
-	RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
+		char *r = fgets(txtext, TXTEXT_LEN, stdin);
+		if(r == NULL) break;
+
+		if(txtext[0] == 'F') {
+			center_freq = atof(txtext+1);
+			printf("Changing frequency to %d\n", center_freq);
+			continue;
+		}
+
+		nbits = 8*strlen(txtext);
+		// TODO: encode ascii to baudot
+		int i;
+		for(i = 0; i < nbits/8-1; i+=2) {
+			// transmit RYRYRYRY as test
+			txbits[i] = 212;
+			txbits[i+1] = 234;
+		}
+
+		tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+		
+		struct itimerspec tfd_ts;
+		tfd_ts.it_value.tv_sec = 0;
+		tfd_ts.it_value.tv_nsec = 1;
+		tfd_ts.it_interval.tv_sec = 0;
+		tfd_ts.it_interval.tv_nsec = 1e9 / 45.45 + 0.5;
+		ret = timerfd_settime(tfd, 0, &tfd_ts, NULL);
+		//printf("%d\n", ret);
+
+		printf("Transmitting\n");
+		RTL_CHECK(rtlsdr_set_tuner_gain,(dev, tx_gain));
+		int bit_i = 0;
+		while(bit_i < nbits) {
+			uint64_t tfd_e = 0;
+			ret = read(tfd, &tfd_e, sizeof(uint64_t));
+			if(ret < 0) break;
+			//printf("%d %ld\n", ret, tfd_e);
+			if(txbits[bit_i / 8] & (1<<(7&bit_i)))
+				txfreq = center_freq + tone1;
+			else
+				txfreq = center_freq + tone1 - shift;
+			txfreq_tune = txfreq / 4 - if_freq;
+			RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
+
+			bit_i += tfd_e;
+		}
+		close(tfd);
+		tfd = -1;
+	}
 
 	err:
 	if(tfd >= 0)
@@ -134,7 +154,6 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 int main() {
 	int idx = 0;
 	int sample_rate = 2.4e6;
-	int gain = 500;
 	int blocksize = DECIM1_BUF*2;
 
 	int ret;
@@ -162,7 +181,7 @@ int main() {
 	RTL_CHECK(rtlsdr_set_if_freq,(dev, if_freq));
 	RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
 	RTL_CHECK(rtlsdr_set_tuner_gain_mode,(dev, 1));
-	RTL_CHECK(rtlsdr_set_tuner_gain,(dev, gain));
+	RTL_CHECK(rtlsdr_set_tuner_gain,(dev, rx_gain));
 
 	// start
 	pthread_create(&control_thrd, 0, control, NULL);
