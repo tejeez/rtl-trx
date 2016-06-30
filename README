@@ -3,6 +3,12 @@ rtl-trx: Transmit and receive RTTY using an RTL-SDR dongle
 Local oscillator leakage from an RTL-SDR dongle can be used as a very low power
 FSK transmitter. This program transmits RTTY and also makes it easy to use the
 same dongle to receive RTTY in between transmissions.
+The goal is to make it possible to have a two-way QSO between two dongles.
+
+For more information, see this post on our preliminary experiments:
+https://sites.google.com/site/oh2ftg/home/rtl-sdr-transmitter-experiments
+A possible hardware modification to increase transmit power:
+http://www.steila.com/blog/index.php?controller=post&action=view&id_post=9
 
 
 Setup:
@@ -34,4 +40,10 @@ number into rtl-trx. For example, F 435e6 lets you receive 435 MHz USB.
 Now you can also type a line of text into rtl-trx and it should be transmitted
 as RTTY with a shift of 439.45 Hz.
 
+To get a successful contact between two RTL-SDR dongles, you will probably need
+to adjust your dial frequency a bit based on frequency error your dongle.
+A wideband waterfall view might be added in rtl-trx to make this easier.
+Before it's implemented, the easiest way is to use a third dongle and your
+favourite SDR software to check that both stations are transmitting on nearly
+the same frequency.
 
