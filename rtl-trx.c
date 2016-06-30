@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <sys/timerfd.h>
 #include <rtl-sdr.h>
+#include <pthread.h>
+#include <signal.h>
 
 #define RTL_CHECK(x, y) { \
 	ret = (x y); \
@@ -23,39 +25,34 @@ const char bits[] = {
 };
 const int nbits = sizeof(bits);
 
-int main() {
-	rtlsdr_dev_t *dev = NULL;
-	int idx = 0;
-	int sample_rate = 2.4e6;
-	int if_freq = 3.6e6;
-	long long center_freq = 868e6;
-	int gain = 500;
-	
-	int tone1 = 1000, tone0 = 1220;
+pthread_t control_thrd=0;
+rtlsdr_dev_t *dev = NULL;
+int if_freq = 3.6e6;
+long long center_freq = 1250e6;
+int tone1 = 1000, shift = 440;
+int do_exit = 0;
+
+
+static void sighandler(int signum) {
+	(void)signum;
+	do_exit = 1;
+}
+
+
+static void *control(void *arg) {
+	long long txfreq, txfreq_tune;
+	(void)arg;
 	int ret;
 	
-	RTL_CHECK(rtlsdr_open,(&dev, idx));
-	RTL_CHECK(rtlsdr_set_sample_rate,(dev, sample_rate));
-	RTL_CHECK(rtlsdr_set_dithering,(dev, 0));
-	RTL_CHECK(rtlsdr_set_if_freq,(dev, if_freq));
-	RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
-	RTL_CHECK(rtlsdr_set_tuner_gain_mode,(dev, 1));
-	RTL_CHECK(rtlsdr_set_tuner_gain,(dev, gain));
-	RTL_CHECK(rtlsdr_reset_buffer,(dev));
+	int tfd=-1;
 
-	/*RTL_CHECK(rtlsdr_read_async,(dev, rtlsdr_callback, (void *)ds,
-		      0, blocksize));*/
-
-	long long txfreq, txfreq_tune;
-	
-	int tfd;
 	tfd = timerfd_create(CLOCK_MONOTONIC, 0);
 	
 	struct itimerspec tfd_ts;
 	tfd_ts.it_value.tv_sec = 0;
 	tfd_ts.it_value.tv_nsec = 1;
 	tfd_ts.it_interval.tv_sec = 0;
-	tfd_ts.it_interval.tv_nsec = 1e9 / 45.0 + 0.5;
+	tfd_ts.it_interval.tv_nsec = 1e9 / 45.45 + 0.5;
 	ret = timerfd_settime(tfd, 0, &tfd_ts, NULL);
 	//printf("%d\n", ret);
 	
@@ -70,13 +67,67 @@ int main() {
 		if(bits[bit_i % nbits] & 1)
 			txfreq = center_freq + tone1;
 		else
-			txfreq = center_freq + tone0;
+			txfreq = center_freq + tone1 - shift;
 		txfreq_tune = txfreq / 4 - if_freq;
 		RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
 		
 		bit_i += tfd_e;
 	}
+	close(tfd);
+	tfd = -1;
+
 	err:
+	if(tfd >= 0)
+		close(tfd);
+	return NULL;
+}
+
+
+static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
+	(void)buf;
+	(void)len;
+	(void)arg;
+	if(do_exit) {
+		printf("Canceling\n");
+		rtlsdr_cancel_async(dev);
+	}
+}
+
+
+int main() {
+	int idx = 0;
+	int sample_rate = 2.4e6;
+	int gain = 500;
+	int blocksize = 4096;
+
+	int ret;
+
+	struct sigaction sigact;
+
+	sigact.sa_handler = sighandler;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = 0;
+	sigaction(SIGINT, &sigact, NULL);
+	sigaction(SIGTERM, &sigact, NULL);
+	sigaction(SIGQUIT, &sigact, NULL);
+	sigaction(SIGPIPE, &sigact, NULL);
+
+	RTL_CHECK(rtlsdr_open,(&dev, idx));
+	RTL_CHECK(rtlsdr_set_sample_rate,(dev, sample_rate));
+	RTL_CHECK(rtlsdr_set_dithering,(dev, 0));
+	RTL_CHECK(rtlsdr_set_if_freq,(dev, if_freq));
+	RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
+	RTL_CHECK(rtlsdr_set_tuner_gain_mode,(dev, 1));
+	RTL_CHECK(rtlsdr_set_tuner_gain,(dev, gain));
+
+	pthread_create(&control_thrd, 0, control, NULL);
+
+	RTL_CHECK(rtlsdr_reset_buffer,(dev));
+	RTL_CHECK(rtlsdr_read_async,(dev, rtlsdr_callback, NULL, 0, blocksize));
+
+	err:
+	if(control_thrd)
+		pthread_kill(control_thrd, SIGTERM);
 	
 	return 0;
 }
