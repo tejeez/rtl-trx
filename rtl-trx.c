@@ -10,6 +10,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define BAUDOT_PREAMBLE_LENGTH 8
+#include "baudot.h"
+
 int if_freq = 3.6e6;
 unsigned int center_freq = 1250e6;
 int rx_gain = 500, tx_gain = 200;
@@ -38,17 +41,20 @@ static void sighandler(int signum) {
 }
 
 
-#define TXTEXT_LEN 512
+#define TXTEXT_LEN 500
+#define TXBITS_LEN 512
+
 static void *control(void *arg) {
 	unsigned int txfreq, txfreq_tune;
 	(void)arg;
 	int ret;
-	char txtext[TXTEXT_LEN], txbits[TXTEXT_LEN];
+	char txtext[TXTEXT_LEN];
+	uint8_t txbits[TXBITS_LEN];
 	
 	int tfd=-1;
 
 	for(;;) {
-		int nbits;
+		int nbits, nbytes;
 		RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
 		RTL_CHECK(rtlsdr_set_tuner_gain,(dev, rx_gain));
 		printf("Ready\n");
@@ -62,14 +68,8 @@ static void *control(void *arg) {
 			continue;
 		}
 
-		nbits = 8*strlen(txtext);
-		// TODO: encode ascii to baudot
-		int i;
-		for(i = 0; i < nbits/8-1; i+=2) {
-			// transmit RYRYRYRY as test
-			txbits[i] = 212;
-			txbits[i+1] = 234;
-		}
+		nbytes = baudot_from_ascii(txbits, TXBITS_LEN, txtext);
+		nbits = nbytes*8;
 
 		tfd = timerfd_create(CLOCK_MONOTONIC, 0);
 		
@@ -122,6 +122,7 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 	float complex dec_in[DECIM1_BUF], dec_out[DECIM1_OUTBUF];
 	float audio_out[2*DECIM1_OUTBUF];
 	unsigned int dec_in_n, i, num_out=0;
+	int ret, bytes_out;
 	if(do_exit) {
 		printf("Canceling\n");
 		rtlsdr_cancel_async(dev);
@@ -147,7 +148,10 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 		firhilbf_interp_execute(hilbert_q, in, audio_out + 2*i);
 		outsamples++;
 	}
-	write(audiopipe, audio_out, 2*num_out*sizeof(float));
+	bytes_out = 2*num_out*sizeof(float);
+	ret = write(audiopipe, audio_out, bytes_out);
+	if(ret != bytes_out)
+		printf("No audio pipe?\n");
 }
 
 
