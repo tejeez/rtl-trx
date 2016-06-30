@@ -34,16 +34,15 @@ Start rtl-trx:
 
 You should now see noise scrolling in the waterfall of fldigi.
 rtl-trx is working as an upper sideband demodulator which sends the demodulated
-audio to fldigi. You can change your dial frequency by typing letter F and a
+audio to fldigi. You can change your center frequency by typing letter F and a
 number into rtl-trx. For example, F 435e6 lets you receive 435 MHz USB.
 
 Now you can also type a line of text into rtl-trx and it should be transmitted
 as RTTY with a shift of 439.45 Hz.
 
 To get a successful contact between two RTL-SDR dongles, you will probably need
-to adjust your dial frequency a bit based on frequency error your dongle.
+to adjust your center frequency a bit based on frequency error your dongle.
 A wideband waterfall view might be added in rtl-trx to make this easier.
-Before it's implemented, the easiest way is to use a third dongle and your
-favourite SDR software to check that both stations are transmitting on nearly
-the same frequency.
+Before it's implemented, the easiest way is to close rtl-trx for a moment and use
+your favourite SDR software to find apparent TX frequency of the other station.
 

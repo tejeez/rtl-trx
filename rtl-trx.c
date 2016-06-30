@@ -16,7 +16,7 @@
 int if_freq = 3.6e6;
 unsigned int center_freq = 1250e6;
 int rx_gain = 500, tx_gain = 200;
-int tone1 = 2200, shift = 440;
+int tone1 = 200, shift = 440;
 
 // decimation from 2.4 MHz to 8 kHz/2
 #define DECIM1 600
