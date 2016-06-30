@@ -16,7 +16,7 @@
 #endif
 
 #ifndef BAUDOT_PREAMBLE_SYMBOL
-#define BAUDOT_PREAMBLE_SYMBOL ((uint8_t) 0x1F) // LTRS
+#define BAUDOT_PREAMBLE_SYMBOL BAUDOT_LETTERS_SHIFT // LTRS
 #endif
 
 
@@ -182,9 +182,9 @@ uint16_t baudot_get_next(uint8_t ascii_letter, uint8_t *current_shift) {
 	// Case/shift mismatch? Change case and insert shift symbol
 	if ((symbol.shift & *current_shift) == 0) {
 		if (symbol.shift == BAUDOT_LTRS) {
-			finished_symbol |= BAUDOT_STOP_BITS | BAUDOT_LETTERS_SHIFT | BAUDOT_START_BITS;
+			finished_symbol |= BAUDOT_STOP_BITS | (BAUDOT_LETTERS_SHIFT << 1) | BAUDOT_START_BITS;
 		} else {
-			finished_symbol |= BAUDOT_STOP_BITS | BAUDOT_FIGURES_SHIFT | BAUDOT_START_BITS;
+			finished_symbol |= BAUDOT_STOP_BITS | (BAUDOT_FIGURES_SHIFT << 1) | BAUDOT_START_BITS;
 		}
 		*current_shift = symbol.shift;
 		finished_symbol <<= 8;
@@ -242,4 +242,3 @@ ssize_t baudot_from_ascii(uint8_t *buffer, size_t buffer_size, char const *strin
 
 	return bytes_written;
 }
-
