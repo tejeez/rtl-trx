@@ -36,7 +36,6 @@ int do_exit = 0;
 
 // decimation from 2.4 MHz to 8 kHz/2
 #define DECIM1 600
-#define DECIM1_LEN (DECIM1*4)
 
 static void sighandler(int signum) {
 	(void)signum;
@@ -94,13 +93,14 @@ float complex decim1[DECIM1];
 msresamp_crcf decim1_q;
 firhilbf hilbert_q;
 int audiopipe = 3;
+int outsamples = 0;
 
 #define DECIM1_BUF 2048
 #define DECIM1_OUTBUF (DECIM1_BUF/DECIM1 + 1)
 static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 	(void)arg;
 	float complex dec_in[DECIM1_BUF], dec_out[DECIM1_OUTBUF];
-	float audio_out[2];
+	float audio_out[2*DECIM1_OUTBUF];
 	unsigned int dec_in_n, i, num_out=0;
 	if(do_exit) {
 		printf("Canceling\n");
@@ -115,11 +115,19 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 	}
 
 	msresamp_crcf_execute(decim1_q, dec_in, dec_in_n, dec_out, &num_out);
+	assert(num_out <= DECIM1_OUTBUF);
 
 	for(i = 0; i < num_out; i++) {
-		firhilbf_interp_execute(hilbert_q, dec_out[i], audio_out);
-		write(audiopipe, audio_out, 2*sizeof(float));
+		float complex in = dec_out[i];
+
+		// hilbert transform seems to swap halves of spectrum, fix it here:
+		if(outsamples & 1)
+			in = -in;
+
+		firhilbf_interp_execute(hilbert_q, in, audio_out + 2*i);
+		outsamples++;
 	}
+	write(audiopipe, audio_out, 2*num_out*sizeof(float));
 }
 
 
