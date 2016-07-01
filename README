@@ -11,7 +11,7 @@ A possible hardware modification to increase transmit power:
 http://www.steila.com/blog/index.php?controller=post&action=view&id_post=9
 
 
-Setup:
+SETUP
 
 Install fldigi, pavucontrol, liquiddsp and librtlsdr
 ( https://github.com/jgaeddert/liquid-dsp https://github.com/keenerd/rtl-sdr )
@@ -45,4 +45,16 @@ to adjust your center frequency a bit based on frequency error your dongle.
 A wideband waterfall view might be added in rtl-trx to make this easier.
 Before it's implemented, the easiest way is to close rtl-trx for a moment and use
 your favourite SDR software to find apparent TX frequency of the other station.
+
+
+
+BEACON
+
+Don't want to install fldigi, pulseaudio and liquiddsp? There's also a simple
+transmit-only beacon program which only needs librtlsdr to work.
+To use:
+make beacon
+./beacon transmit_frequency_in_Hz "text to transmit"
+
+For example, ./beacon 435e6 "rtl-sdr rtty beacon "
 
