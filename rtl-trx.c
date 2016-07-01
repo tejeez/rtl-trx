@@ -45,7 +45,7 @@ static void sighandler(int signum) {
 #define TXBITS_LEN 512
 
 static void *control(void *arg) {
-	unsigned int txfreq, txfreq_tune;
+	unsigned int txfreq, txfreq_tune, txfreq_tune0, txfreq_tune1, txfreq_prev;
 	(void)arg;
 	int ret;
 	char txtext[TXTEXT_LEN];
@@ -55,8 +55,8 @@ static void *control(void *arg) {
 
 	for(;;) {
 		int nbits, nbytes;
-		RTL_CHECK(rtlsdr_set_center_freq,(dev, center_freq));
-		RTL_CHECK(rtlsdr_set_tuner_gain,(dev, rx_gain));
+		rtlsdr_set_center_freq(dev, center_freq);
+		rtlsdr_set_tuner_gain(dev, rx_gain);
 		printf("Ready\n");
 
 		char *r = fgets(txtext, TXTEXT_LEN, stdin);
@@ -84,27 +84,42 @@ static void *control(void *arg) {
 		printf("Transmitting\n");
 		RTL_CHECK(rtlsdr_set_tuner_gain,(dev, tx_gain));
 		int bit_i = 0;
+		uint64_t tfd_e = 0;
+
+		txfreq = center_freq + tone1;
+		txfreq_tune1 = txfreq / 4 - if_freq;
+		txfreq = center_freq + tone1 - shift;
+		txfreq_tune0 = txfreq / 4 - if_freq;
+		txfreq_prev = 0;
+
+		ret = read(tfd, &tfd_e, sizeof(uint64_t));
 		while(bit_i < nbits) {
-			uint64_t tfd_e = 0;
+			if(txbits[bit_i / 8] & (1<<(7&bit_i)))
+				txfreq_tune = txfreq_tune1;
+			else
+				txfreq_tune = txfreq_tune0;
+			if(txfreq_tune != txfreq_prev)
+				RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
+			txfreq_prev = txfreq_tune;
+
 			ret = read(tfd, &tfd_e, sizeof(uint64_t));
 			if(ret < 0) break;
-			//printf("%d %ld\n", ret, tfd_e);
-			if(txbits[bit_i / 8] & (1<<(7&bit_i)))
-				txfreq = center_freq + tone1;
-			else
-				txfreq = center_freq + tone1 - shift;
-			txfreq_tune = txfreq / 4 - if_freq;
-			RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
-
+			if(tfd_e > 1)
+				printf("Warning: missed %ld bits\n", tfd_e-1);
+			/* read from timerfd returns the number of timer
+			   expirations. If we have missed some number of these,
+			   we'll skip the same number of bits to keep timing
+			   correct. */
 			bit_i += tfd_e;
+
 		}
-		close(tfd);
+		err:
+		if(tfd > 0)
+			close(tfd);
 		tfd = -1;
 	}
 
-	err:
-	if(tfd >= 0)
-		close(tfd);
+	do_exit = 1;
 	return NULL;
 }
 
@@ -115,7 +130,7 @@ firhilbf hilbert_q;
 int audiopipe = 3;
 int outsamples = 0;
 
-#define DECIM1_BUF 2048
+#define DECIM1_BUF 8192
 #define DECIM1_OUTBUF (DECIM1_BUF/DECIM1 + 1)
 static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 	(void)arg;
@@ -123,6 +138,7 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 	float audio_out[2*DECIM1_OUTBUF];
 	unsigned int dec_in_n, i, num_out=0;
 	int ret, bytes_out;
+	float audiogain = 0.1;
 	if(do_exit) {
 		printf("Canceling\n");
 		rtlsdr_cancel_async(dev);
@@ -143,7 +159,9 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *arg) {
 
 		// hilbert transform seems to swap halves of spectrum, fix it here:
 		if(outsamples & 1)
-			in = -in;
+			in = -audiogain*in;
+		else
+			in = audiogain*in;
 
 		firhilbf_interp_execute(hilbert_q, in, audio_out + 2*i);
 		outsamples++;
