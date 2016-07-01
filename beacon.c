@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
 	rtlsdr_dev_t *dev = NULL;
 	uint8_t txbits[TXBITS_LEN];
 	int ret, nbytes, nbits, tfd=-1;
-	unsigned int txfreq, txfreq_tune;
+	unsigned int txfreq, txfreq_tune, txfreq_tune1, txfreq_tune0, txfreq_prev;
 	struct sigaction sigact;
 	
 	if(argc != 3) {
@@ -75,20 +75,33 @@ int main(int argc, char *argv[]) {
 	ret = timerfd_settime(tfd, 0, &tfd_ts, NULL);
 	//printf("%d\n", ret);
 
+	txfreq = center_freq + tone1;
+	txfreq_tune1 = txfreq / 4 - if_freq;
+	txfreq = center_freq + tone1 - shift;
+	txfreq_tune0 = txfreq / 4 - if_freq;
+	txfreq_prev = 0;
+
 	printf("Transmitting\n");
 	int bit_i = 0;
+	uint64_t tfd_e = 0;
+	ret = read(tfd, &tfd_e, sizeof(uint64_t));
 	while(!do_exit) {
-		uint64_t tfd_e = 0;
+		if(txbits[bit_i / 8] & (1<<(7&bit_i)))
+			txfreq_tune = txfreq_tune1;
+		else
+			txfreq_tune = txfreq_tune0;
+		if(txfreq_tune != txfreq_prev)
+			RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
+		txfreq_prev = txfreq_tune;
+
 		ret = read(tfd, &tfd_e, sizeof(uint64_t));
 		if(ret < 0) break;
-		//printf("%d %ld\n", ret, tfd_e);
-		if(txbits[bit_i / 8] & (1<<(7&bit_i)))
-			txfreq = center_freq + tone1;
-		else
-			txfreq = center_freq + tone1 - shift;
-		txfreq_tune = txfreq / 4 - if_freq;
-		RTL_CHECK(rtlsdr_set_center_freq,(dev, txfreq_tune));
-
+		if(tfd_e > 1)
+			printf("Warning: missed %ld bits\n", tfd_e-1);
+		/* read from timerfd returns the number of timer
+		   expirations. If we have missed some number of these,
+		   we'll skip the same number of bits to keep timing
+		   correct. */
 		bit_i += tfd_e;
 		bit_i = bit_i % nbits;
 	}
